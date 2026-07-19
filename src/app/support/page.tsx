@@ -1,144 +1,297 @@
-// Vercel Edge Middleware — passcode gate for osiris.raedalsaif.com
-// Place at repo root as `middleware.ts`. Runs on every request before any asset is served.
-//
-// Required Vercel env vars (Project Settings → Environment Variables):
-//   GATE_PASSCODE   e.g. 00100
-//   GATE_SECRET     any long random string (used to sign the unlock cookie)
+// ─────────────────────────────────────────────────────────────
+// RUPES OSINT — Support Page
+// Drop this file into the OSIRIS Vercel fork at:
+//   app/support/page.tsx   (Next.js App Router)
+// Route: https://osiris.raedalsaif.com/support
+// ─────────────────────────────────────────────────────────────
 
-import { NextRequest, NextResponse } from 'next/server';
+'use client';
 
-export const config = {
-  // Match everything except Next internals + the unlock endpoint itself.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|__gate/unlock).*)'],
+import { useState } from 'react';
+
+const WALLETS = [
+  {
+    asset: 'USDT',
+    network: 'TRC20 (Tron)',
+    address: 'TR9gmh6wx51aEugnGzwagEmzTHuo1J6Sjw',
+    note: 'Lowest fees. Send only USDT on the Tron (TRC20) network.',
+  },
+] as const;
+
+const TOKENS = {
+  bg: '#0B0F14',
+  panel: '#10161D',
+  panelHi: '#141C25',
+  border: '#1E2836',
+  gold: '#D4A84A',
+  goldDim: 'rgba(212,168,74,0.14)',
+  ink: '#E6E9EE',
+  inkDim: '#8A96A6',
+  danger: '#FF6C6C',
 };
 
-const COOKIE_NAME = 'osint_gate';
-const COOKIE_MAX_AGE = 60 * 60 * 12; // 12h
+export default function SupportPage() {
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        background: TOKENS.bg,
+        color: TOKENS.ink,
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif',
+        padding: '48px 20px 96px',
+      }}
+    >
+      <div style={{ maxWidth: 720, margin: '0 auto' }}>
+        <div style={{ marginBottom: 32 }}>
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: '0.22em',
+              textTransform: 'uppercase',
+              color: TOKENS.gold,
+              marginBottom: 12,
+            }}
+          >
+            RUPES OSINT · Support
+          </div>
+          <h1
+            style={{
+              fontSize: 34,
+              fontWeight: 700,
+              letterSpacing: '-0.02em',
+              margin: 0,
+              lineHeight: 1.15,
+            }}
+          >
+            Support RUPES OSINT
+          </h1>
+          <p
+            style={{
+              color: TOKENS.inkDim,
+              fontSize: 15,
+              lineHeight: 1.6,
+              marginTop: 14,
+              maxWidth: 560,
+            }}
+          >
+            RUPES OSINT is an independent, non-commercial intelligence
+            collection and visualization platform. Contributions fund
+            infrastructure, data feeds, and continued open development.
+          </p>
+        </div>
 
-const enc = new TextEncoder();
+        <section
+          style={{
+            background: TOKENS.panel,
+            border: `1px solid ${TOKENS.border}`,
+            borderRadius: 14,
+            padding: 24,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: TOKENS.gold,
+              marginBottom: 18,
+            }}
+          >
+            Accepted Assets
+          </div>
 
-async function hmac(secret: string, msg: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+          {WALLETS.map((w) => (
+            <WalletRow key={w.asset + w.network} wallet={w} />
+          ))}
+        </section>
+
+        <section
+          style={{
+            background: TOKENS.panel,
+            border: `1px solid ${TOKENS.border}`,
+            borderRadius: 14,
+            padding: 20,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: TOKENS.danger,
+              marginBottom: 10,
+            }}
+          >
+            Before You Send
+          </div>
+          <ul
+            style={{
+              margin: 0,
+              paddingLeft: 18,
+              color: TOKENS.inkDim,
+              fontSize: 14,
+              lineHeight: 1.7,
+            }}
+          >
+            <li>
+              Send only the exact asset on the exact network shown. Wrong-network
+              transfers are unrecoverable.
+            </li>
+            <li>Contributions are non-refundable and non-tax-deductible.</li>
+            <li>
+              RUPES OSINT does not issue tokens, securities, or investment
+              instruments.
+            </li>
+          </ul>
+        </section>
+
+        <div
+          style={{
+            textAlign: 'center',
+            color: TOKENS.inkDim,
+            fontSize: 12,
+            marginTop: 40,
+          }}
+        >
+          <a
+            href="/"
+            style={{
+              color: TOKENS.gold,
+              textDecoration: 'none',
+              borderBottom: `1px solid ${TOKENS.goldDim}`,
+              paddingBottom: 2,
+            }}
+          >
+            ← Back to RUPES OSINT
+          </a>
+        </div>
+      </div>
+    </main>
   );
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(msg));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function isValidCookie(value: string | undefined, secret: string): Promise<boolean> {
-  if (!value) return false;
-  const [ts, sig] = value.split('.');
-  if (!ts || !sig) return false;
-  const age = Date.now() - Number(ts);
-  if (!Number.isFinite(age) || age < 0 || age > COOKIE_MAX_AGE * 1000) return false;
-  const expected = await hmac(secret, ts);
-  return expected === sig;
-}
+function WalletRow({
+  wallet,
+}: {
+  wallet: { asset: string; network: string; address: string; note: string };
+}) {
+  const [copied, setCopied] = useState(false);
 
-function gatePage(error?: string): Response {
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
-<title>RUPES OSINT · Restricted</title>
-<style>
-  :root { color-scheme: dark; }
-  html,body { margin:0; height:100%; background:#0B0F14; color:#E8EAED; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .wrap { min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:24px; }
-  form { width:100%; max-width:360px; background:hsl(220 20% 7%); border:1px solid hsl(220 15% 14%); padding:24px; }
-  .tag { font-size:10px; letter-spacing:.25em; text-transform:uppercase; color:hsl(43 78% 58%); display:flex; gap:8px; align-items:center; }
-  h1 { font-size:14px; margin:14px 0 4px; font-weight:600; }
-  p { font-size:11px; margin:0 0 16px; color:hsl(220 10% 55%); }
-  input { width:100%; box-sizing:border-box; padding:10px 12px; background:hsl(220 18% 10%); border:1px solid ${error ? '#ef4444' : 'hsl(220 15% 14%)'}; color:#E8EAED; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.3em; font-size:14px; outline:none; }
-  button { margin-top:12px; width:100%; padding:10px; background:hsl(43 78% 58%); color:#0B0F14; border:0; font-weight:700; font-size:11px; letter-spacing:.2em; text-transform:uppercase; cursor:pointer; }
-  .err { color:#ef4444; font-size:11px; margin-top:8px; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <form method="POST" action="/__gate/unlock">
-    <div class="tag">◆ RUPES OSINT · Restricted</div>
-    <h1>Enter passcode to access</h1>
-    <p>Global Intelligence Collection &amp; Visualization</p>
-    <input name="passcode" type="password" inputmode="numeric" autofocus autocomplete="off" placeholder="•••••" />
-    ${error ? `<div class="err">${error}</div>` : ''}
-    <input type="hidden" name="next" value="__NEXT__" />
-    <button type="submit">Unlock</button>
-  </form>
-</div>
-</body></html>`;
-  return new Response(html, {
-    status: 401,
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'no-store',
-      'x-robots-tag': 'noindex, nofollow',
-    },
-  });
-}
-
-export async function middleware(req: NextRequest) {
-  const secret = process.env.GATE_SECRET;
-  const passcode = process.env.GATE_PASSCODE;
-
-  if (!secret || !passcode) {
-    return new Response('Gate misconfigured: set GATE_PASSCODE and GATE_SECRET env vars.', {
-      status: 500, headers: { 'content-type': 'text/plain' },
-    });
-  }
-
-  const url = new URL(req.url);
-
-  // Unlock endpoint (POST passcode form here).
-  if (url.pathname === '/__gate/unlock') {
-    if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-    const form = await req.formData();
-    const submitted = String(form.get('passcode') ?? '');
-    const next = String(form.get('next') ?? '/') || '/';
-
-    if (submitted !== passcode) {
-      const html = await gatePage('Invalid passcode');
-      return new Response((await html.text()).replace('__NEXT__', escapeAttr(next)), {
-        status: 401,
-        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
-      });
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(wallet.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* noop */
     }
+  };
 
-    const ts = Date.now().toString();
-    const sig = await hmac(secret, ts);
-    const res = NextResponse.redirect(new URL(next, url.origin), 303);
-    res.cookies.set(COOKIE_NAME, `${ts}.${sig}`, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: COOKIE_MAX_AGE,
-    });
-    return res;
-  }
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&bgcolor=10161D&color=E6E9EE&margin=8&data=${encodeURIComponent(
+    wallet.address,
+  )}`;
 
-  // Everything else — require valid cookie.
-  const cookie = req.cookies.get(COOKIE_NAME)?.value;
-  if (await isValidCookie(cookie, secret)) {
-    return NextResponse.next();
-  }
+  return (
+    <div
+      style={{
+        background: TOKENS.panelHi,
+        border: `1px solid ${TOKENS.border}`,
+        borderRadius: 12,
+        padding: 20,
+        display: 'grid',
+        gridTemplateColumns: '180px 1fr',
+        gap: 20,
+        alignItems: 'center',
+      }}
+    >
+      <img
+        src={qrUrl}
+        alt={`${wallet.asset} ${wallet.network} QR code`}
+        width={180}
+        height={180}
+        style={{
+          borderRadius: 8,
+          border: `1px solid ${TOKENS.border}`,
+          background: TOKENS.panel,
+          display: 'block',
+        }}
+      />
 
-  const nextPath = url.pathname + url.search;
-  const page = await gatePage();
-  const body = (await page.text()).replace('__NEXT__', escapeAttr(nextPath));
-  return new Response(body, {
-    status: 401,
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'no-store',
-      'x-robots-tag': 'noindex, nofollow',
-    },
-  });
-}
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 10,
+            marginBottom: 6,
+          }}
+        >
+          <span style={{ fontSize: 20, fontWeight: 700 }}>{wallet.asset}</span>
+          <span
+            style={{
+              fontSize: 11,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: TOKENS.gold,
+              background: TOKENS.goldDim,
+              padding: '3px 8px',
+              borderRadius: 999,
+            }}
+          >
+            {wallet.network}
+          </span>
+        </div>
 
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        <div
+          style={{
+            color: TOKENS.inkDim,
+            fontSize: 12.5,
+            lineHeight: 1.55,
+            marginBottom: 12,
+          }}
+        >
+          {wallet.note}
+        </div>
+
+        <div
+          style={{
+            background: TOKENS.bg,
+            border: `1px solid ${TOKENS.border}`,
+            borderRadius: 8,
+            padding: '10px 12px',
+            fontFamily:
+              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
+            fontSize: 12.5,
+            wordBreak: 'break-all',
+            color: TOKENS.ink,
+            marginBottom: 10,
+          }}
+        >
+          {wallet.address}
+        </div>
+
+        <button
+          onClick={copy}
+          style={{
+            appearance: 'none',
+            cursor: 'pointer',
+            background: copied ? TOKENS.gold : 'transparent',
+            color: copied ? TOKENS.bg : TOKENS.gold,
+            border: `1px solid ${TOKENS.gold}`,
+            borderRadius: 8,
+            padding: '8px 14px',
+            fontSize: 12.5,
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          {copied ? '✓ Copied' : 'Copy address'}
+        </button>
+      </div>
+    </div>
+  );
 }
