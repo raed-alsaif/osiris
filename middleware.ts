@@ -59,7 +59,7 @@ function gatePage(error?: string): Response {
 </head>
 <body>
 <div class="wrap">
-  <form method="POST" action="/__gate/unlock">
+  <form method="POST" action="/gate/unlock">
     <div class="tag">◆ RUPES OSINT · Restricted</div>
     <h1>Enter passcode to access</h1>
     <p>Global Intelligence Collection &amp; Visualization</p>
