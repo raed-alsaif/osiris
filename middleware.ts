@@ -92,34 +92,6 @@ export async function middleware(req: NextRequest) {
 
   const url = new URL(req.url);
 
-  // Unlock endpoint (POST passcode form here).
-  if (url.pathname === '/__gate/unlock') {
-    if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-    const form = await req.formData();
-    const submitted = String(form.get('passcode') ?? '');
-    const next = String(form.get('next') ?? '/') || '/';
-
-    if (submitted !== passcode) {
-      const html = await gatePage('Invalid passcode');
-      return new Response((await html.text()).replace('__NEXT__', escapeAttr(next)), {
-        status: 401,
-        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
-      });
-    }
-
-    const ts = Date.now().toString();
-    const sig = await hmac(secret, ts);
-    const res = NextResponse.redirect(new URL(next, url.origin), 303);
-    res.cookies.set(COOKIE_NAME, `${ts}.${sig}`, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: COOKIE_MAX_AGE,
-    });
-    return res;
-  }
-
   // Everything else — require valid cookie.
   const cookie = req.cookies.get(COOKIE_NAME)?.value;
   if (await isValidCookie(cookie, secret)) {
