@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const config = {
   // Match everything except Next internals + the unlock endpoint itself.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|__gate/unlock).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|gate/unlock).*)'],
 };
 
 const COOKIE_NAME = 'osint_gate';
