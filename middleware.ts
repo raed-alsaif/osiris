@@ -1,142 +1,144 @@
-import { NextRequest, NextResponse } from "next/server";
+// Vercel Edge Middleware — passcode gate for osiris.raedalsaif.com
+// Place at repo root as `middleware.ts`. Runs on every request before any asset is served.
+//
+// Required Vercel env vars (Project Settings → Environment Variables):
+//   GATE_PASSCODE   e.g. 00100
+//   GATE_SECRET     any long random string (used to sign the unlock cookie)
 
-const PASSCODE = process.env.GATE_PASSCODE?.trim() ?? "00100";
-const SECRET = process.env.GATE_SECRET ?? "";
-const COOKIE_NAME = "osiris_gate";
-const MAX_AGE_SECONDS = 12 * 60 * 60;
+import { NextRequest, NextResponse } from 'next/server';
 
-const BYPASS_PATHS = ["/_next/static", "/static", "/favicon.ico", "/robots.txt"];
+export const config = {
+  // Match everything except Next internals + the unlock endpoint itself.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|__gate/unlock).*)'],
+};
 
-function isBypass(path: string) {
-  return BYPASS_PATHS.some((p) => path.startsWith(p));
-}
+const COOKIE_NAME = 'osint_gate';
+const COOKIE_MAX_AGE = 60 * 60 * 12; // 12h
 
-async function sign(value: string): Promise<string> {
-  const encoder = new TextEncoder();
+const enc = new TextEncoder();
+
+async function hmac(secret: string, msg: string): Promise<string> {
   const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
-  const b64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
-  return `${value}.${b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(msg));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function verify(token: string): Promise<boolean> {
-  const lastDot = token.lastIndexOf(".");
-  if (lastDot === -1 || !SECRET) return false;
-  const value = token.slice(0, lastDot);
-  const expected = await sign(value);
-  return token === expected && value === PASSCODE;
+async function isValidCookie(value: string | undefined, secret: string): Promise<boolean> {
+  if (!value) return false;
+  const [ts, sig] = value.split('.');
+  if (!ts || !sig) return false;
+  const age = Date.now() - Number(ts);
+  if (!Number.isFinite(age) || age < 0 || age > COOKIE_MAX_AGE * 1000) return false;
+  const expected = await hmac(secret, ts);
+  return expected === sig;
 }
 
-function gateHtml(error?: string): string {
-  const errorBlock = error
-    ? `<div class="err"><p>${error}</p></div>`
-    : "";
-
-  return `<!DOCTYPE html>
+function gatePage(error?: string): Response {
+  const html = `<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Protected | RUPES OSINT</title>
-  <style>
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0; height: 100%;
-      background: #0B0F14; color: #E5E7EB;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .card {
-      background: #10161D; border: 1px solid #1F2937;
-      border-radius: 12px; padding: 40px;
-      width: 100%; max-width: 400px; text-align: center;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.35);
-    }
-    .logo { color: #D4A84A; font-weight: 700; font-size: 22px; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .subtitle { color: #9CA3AF; font-size: 14px; margin-bottom: 28px; }
-    input {
-      width: 100%; padding: 14px; font-size: 18px;
-      letter-spacing: 0.25em; text-align: center;
-      background: #0B0F14; border: 1px solid #374151;
-      border-radius: 8px; color: #F9FAFB; outline: none; margin-bottom: 16px;
-    }
-    input:focus { border-color: #D4A84A; }
-    button {
-      width: 100%; padding: 14px; background: #D4A84A;
-      color: #0B0F14; border: none; border-radius: 8px;
-      font-weight: 700; font-size: 16px; cursor: pointer;
-    }
-    button:hover { background: #C49A3F; }
-    .err {
-      background: rgba(239, 68, 68, 0.12);
-      border: 1px solid rgba(239, 68, 68, 0.35);
-      border-radius: 8px; padding: 12px; margin-bottom: 16px;
-      color: #FCA5A5; font-size: 14px;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>RUPES OSINT · Restricted</title>
+<style>
+  :root { color-scheme: dark; }
+  html,body { margin:0; height:100%; background:#0B0F14; color:#E8EAED; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  form { width:100%; max-width:360px; background:hsl(220 20% 7%); border:1px solid hsl(220 15% 14%); padding:24px; }
+  .tag { font-size:10px; letter-spacing:.25em; text-transform:uppercase; color:hsl(43 78% 58%); display:flex; gap:8px; align-items:center; }
+  h1 { font-size:14px; margin:14px 0 4px; font-weight:600; }
+  p { font-size:11px; margin:0 0 16px; color:hsl(220 10% 55%); }
+  input { width:100%; box-sizing:border-box; padding:10px 12px; background:hsl(220 18% 10%); border:1px solid ${error ? '#ef4444' : 'hsl(220 15% 14%)'}; color:#E8EAED; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.3em; font-size:14px; outline:none; }
+  button { margin-top:12px; width:100%; padding:10px; background:hsl(43 78% 58%); color:#0B0F14; border:0; font-weight:700; font-size:11px; letter-spacing:.2em; text-transform:uppercase; cursor:pointer; }
+  .err { color:#ef4444; font-size:11px; margin-top:8px; }
+</style>
 </head>
 <body>
-  <form class="card" method="post" action="/___gate/unlock">
-    <div class="logo">RUPES OSINT</div>
-    <div class="subtitle">Enter access code to continue</div>
-    ${errorBlock}
-    <input name="passcode" type="password" inputmode="numeric" pattern="[0-9]*"
-      maxlength="10" autocomplete="off" placeholder="•••••" required autofocus />
+<div class="wrap">
+  <form method="POST" action="/__gate/unlock">
+    <div class="tag">◆ RUPES OSINT · Restricted</div>
+    <h1>Enter passcode to access</h1>
+    <p>Global Intelligence Collection &amp; Visualization</p>
+    <input name="passcode" type="password" inputmode="numeric" autofocus autocomplete="off" placeholder="•••••" />
+    ${error ? `<div class="err">${error}</div>` : ''}
+    <input type="hidden" name="next" value="__NEXT__" />
     <button type="submit">Unlock</button>
   </form>
-</body>
-</html>`;
+</div>
+</body></html>`;
+  return new Response(html, {
+    status: 401,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-robots-tag': 'noindex, nofollow',
+    },
+  });
 }
 
 export async function middleware(req: NextRequest) {
-  const url = req.nextUrl.clone();
-  const path = url.pathname;
+  const secret = process.env.GATE_SECRET;
+  const passcode = process.env.GATE_PASSCODE;
 
-  if (isBypass(path)) return NextResponse.next();
+  if (!secret || !passcode) {
+    return new Response('Gate misconfigured: set GATE_PASSCODE and GATE_SECRET env vars.', {
+      status: 500, headers: { 'content-type': 'text/plain' },
+    });
+  }
 
-  if (path === "/___gate/unlock" && req.method === "POST") {
+  const url = new URL(req.url);
+
+  // Unlock endpoint (POST passcode form here).
+  if (url.pathname === '/__gate/unlock') {
+    if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
     const form = await req.formData();
-    const entered = String(form.get("passcode") ?? "").trim();
+    const submitted = String(form.get('passcode') ?? '');
+    const next = String(form.get('next') ?? '/') || '/';
 
-    if (entered === PASSCODE) {
-      const token = await sign(PASSCODE);
-      const res = NextResponse.redirect(new URL("/", req.url));
-      res.cookies.set(COOKIE_NAME, token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: MAX_AGE_SECONDS,
-        path: "/",
+    if (submitted !== passcode) {
+      const html = await gatePage('Invalid passcode');
+      return new Response((await html.text()).replace('__NEXT__', escapeAttr(next)), {
+        status: 401,
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
       });
-      return res;
     }
 
-    const html = gateHtml("Access denied. The code you entered is incorrect.");
-    return new NextResponse(html, {
-      status: 401,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+    const ts = Date.now().toString();
+    const sig = await hmac(secret, ts);
+    const res = NextResponse.redirect(new URL(next, url.origin), 303);
+    res.cookies.set(COOKIE_NAME, `${ts}.${sig}`, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: COOKIE_MAX_AGE,
     });
+    return res;
   }
 
+  // Everything else — require valid cookie.
   const cookie = req.cookies.get(COOKIE_NAME)?.value;
-  const valid = cookie ? await verify(cookie) : false;
-
-  if (!valid) {
-    return new NextResponse(gateHtml(), {
-      status: 403,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+  if (await isValidCookie(cookie, secret)) {
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  const nextPath = url.pathname + url.search;
+  const page = await gatePage();
+  const body = (await page.text()).replace('__NEXT__', escapeAttr(nextPath));
+  return new Response(body, {
+    status: 401,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-robots-tag': 'noindex, nofollow',
+    },
+  });
 }
 
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"],
-};
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
